@@ -1,4 +1,14 @@
-public class QQIdentityProviderFactory extends AbstractOAuth2IdentityProviderFactory<QQIdentityProvider> {
+package com.johnsonfitness.qq;
+
+import org.keycloak.broker.social.SocialIdentityProviderFactory;
+import org.keycloak.broker.provider.AbstractIdentityProviderFactory;
+import org.keycloak.models.IdentityProviderModel;
+import org.keycloak.models.KeycloakSession;
+
+public class QQIdentityProviderFactory
+    extends AbstractIdentityProviderFactory<QQIdentityProvider>
+    implements SocialIdentityProviderFactory<QQIdentityProvider> {
+
     public static final String PROVIDER_ID = "qq";
 
     @Override
@@ -21,4 +31,3 @@ public class QQIdentityProviderFactory extends AbstractOAuth2IdentityProviderFac
         return PROVIDER_ID;
     }
 }
-
