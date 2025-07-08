@@ -20,8 +20,9 @@ public class QQIdentityProviderEndpoint {
     private final KeycloakSession session;
     private final QQIdentityProvider provider;
 
-    public QQIdentityProviderEndpoint(KeycloakSession session, QQIdentityProviderConfig config) {
+    public QQIdentityProviderEndpoint(KeycloakSession session) {
         this.session = session;
+        QQIdentityProviderConfig config = new QQIdentityProviderConfig();
         this.provider = new QQIdentityProvider(session, config);
     }
 

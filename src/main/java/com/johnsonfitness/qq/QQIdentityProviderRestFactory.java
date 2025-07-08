@@ -15,7 +15,7 @@ public class QQIdentityProviderRestFactory implements RealmResourceProviderFacto
         return new RealmResourceProvider() {
             @Override
             public Object getResource() {
-                return new QQIdentityProviderEndpoint(session, new QQIdentityProviderConfig());
+                return new QQIdentityProviderEndpoint(session);
             }
 
             @Override
