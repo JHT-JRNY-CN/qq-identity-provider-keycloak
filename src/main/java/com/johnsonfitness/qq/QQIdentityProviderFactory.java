@@ -1,7 +1,7 @@
 package com.johnsonfitness.qq;
 
-import org.keycloak.broker.social.SocialIdentityProviderFactory;
 import org.keycloak.broker.provider.AbstractIdentityProviderFactory;
+import org.keycloak.broker.social.SocialIdentityProviderFactory;
 import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.KeycloakSession;
 
@@ -23,7 +23,7 @@ public class QQIdentityProviderFactory
 
     @Override
     public QQIdentityProviderConfig createConfig() {
-        return new QQIdentityProviderConfig();
+        return new QQIdentityProviderConfig(new IdentityProviderModel());
     }
 
     @Override
