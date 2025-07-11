@@ -129,7 +129,7 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             JSONObject userInfo = new JSONObject(userInfoRequest.asString());
 
             BrokeredIdentityContext context = new BrokeredIdentityContext(openid, getConfig());
-            context.setUsername(userInfo.optString("nickname", openid));
+            context.setUsername("QQ-" + openid);
             context.setIdp(this);
 
             context.setUserAttribute("nickname", userInfo.optString("nickname"));
