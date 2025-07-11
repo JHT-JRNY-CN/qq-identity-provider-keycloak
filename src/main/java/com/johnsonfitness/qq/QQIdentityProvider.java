@@ -1,10 +1,19 @@
 package com.johnsonfitness.qq;
 
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
+import org.json.JSONObject;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.OAuthErrorException;
 import org.keycloak.broker.oidc.OIDCIdentityProvider;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
 import org.keycloak.broker.provider.BrokeredIdentityContext;
+import org.keycloak.broker.provider.IdentityBrokerException;
+import org.keycloak.broker.provider.util.SimpleHttp;
+import org.keycloak.broker.social.SocialIdentityProvider;
+import org.keycloak.events.Details;
+import org.keycloak.events.Errors;
+import org.keycloak.events.EventBuilder;
 import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.services.ErrorResponseException;
@@ -12,23 +21,16 @@ import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
 
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
-
-import org.keycloak.broker.provider.IdentityBrokerException;
-import org.keycloak.broker.provider.util.SimpleHttp;
-import org.keycloak.broker.social.SocialIdentityProvider;
-import org.keycloak.events.Details;
-import org.keycloak.events.Errors;
-import org.keycloak.events.EventBuilder;
-
 import java.io.IOException;
-
-import org.json.JSONObject;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 public class QQIdentityProvider extends OIDCIdentityProvider implements SocialIdentityProvider<OIDCIdentityProviderConfig> {
 
     static final String QQ_AUTHZ_CODE = "qq-authz-code";
+    static final String ACCESS_TOKEN = "access_token";
 
     public QQIdentityProvider(KeycloakSession session, QQIdentityProviderConfig config) {
         super(session, config);
@@ -91,7 +93,8 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             return null;
         }
 
-        BrokeredIdentityContext federatedIdentity = doGetFederatedIdentity(response.asString());
+        String accessToken = extractAccessToken(response.asString());
+        BrokeredIdentityContext federatedIdentity = doGetFederatedIdentity(accessToken);
         federatedIdentity.setIdp(QQIdentityProvider.this);
         federatedIdentity.setAuthenticationSession(authSession);
         return federatedIdentity;
@@ -143,12 +146,35 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
     private String extractOpenId(String response) {
         int start = response.indexOf("{");
         int end = response.lastIndexOf("}");
-        if (start >= 0 && end >= 0) {
-            String json = response.substring(start, end + 1);
-            JSONObject obj = new JSONObject(json);
-            return obj.getString("openid");
+        try {
+            if (start >= 0 && end >= 0) {
+                String json = response.substring(start, end + 1);
+                JSONObject obj = new JSONObject(json);
+                return obj.getString("openid");
+            }
+        } catch (Exception e) {
+            logger.error("extractOpenId parse error:" + response, e);
         }
         throw new IdentityBrokerException("Cannot extract openid from QQ response: " + response);
+    }
+
+    private String extractAccessToken(String response) {
+        Map<String, String> tokenMap = new HashMap<>();
+        try {
+            for (String pair: response.split("&")) {
+                String[] parts = pair.split("=", 2);
+                if (parts.length == 2) {
+                    String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+                    String value = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+                    tokenMap.put(key, value);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("extractAccessToken parse error: " + response, e);
+            throw new IdentityBrokerException("Cannot extract access token from QQ response: " + response);
+        }
+
+        return tokenMap.get(ACCESS_TOKEN);
     }
 
     @Override
