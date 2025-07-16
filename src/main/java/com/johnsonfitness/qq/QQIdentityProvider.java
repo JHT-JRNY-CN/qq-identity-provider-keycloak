@@ -130,6 +130,7 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
             BrokeredIdentityContext context = new BrokeredIdentityContext(openid, getConfig());
             context.setUsername("QQ-" + openid);
+            context.setEmail(openid + "@qq.jrny.cn");
             context.setIdp(this);
 
             context.setUserAttribute("nickname", userInfo.optString("nickname"));
