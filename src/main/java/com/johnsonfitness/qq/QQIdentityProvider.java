@@ -38,12 +38,10 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
     @Override
     protected String getDefaultScopes() {
-        System.out.println("openid get_user_info");
         return "openid get_user_info";
     }
 
     protected String getAuthorizationUrl() {
-        System.out.println("https://graph.qq.com/oauth2.0/authorize");
         return "https://graph.qq.com/oauth2.0/authorize";
     }
 
@@ -57,8 +55,7 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
     }
 
     @Override
-    protected BrokeredIdentityContext exchangeExternalImpl(EventBuilder event, MultivaluedMap<String, String> params) {
-        System.out.println(String.format("exchangeExternalImpl %s   %s", event.toString(), params.toString()));
+    protected BrokeredIdentityContext exchangeExternalTokenV1Impl(EventBuilder event, MultivaluedMap<String, String> params) {
         TokenExchangeParams exchangeParams = new TokenExchangeParams(params);
         if (exchangeParams.getSubjectToken() == null) {
             event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN + " param unset");
@@ -113,7 +110,6 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
     @Override
     protected BrokeredIdentityContext doGetFederatedIdentity(String accessToken) {
-        System.out.println(String.format("doGetFederatedIdentity %s", accessToken));
         try {
             SimpleHttp openidRequest = SimpleHttp.doGet("https://graph.qq.com/oauth2.0/me", session)
                     .param("access_token", accessToken);
@@ -136,7 +132,7 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             context.setUserAttribute("nickname", userInfo.optString("nickname"));
             context.setUserAttribute("figureurl_qq_1", userInfo.optString("figureurl_qq_1"));
             context.setUserAttribute("gender", userInfo.optString("gender"));
-            context.setUserAttribute("openid", openid);
+            context.setUserAttribute("qq_openid", openid);
 
             return context;
         } catch (Exception e) {
