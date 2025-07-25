@@ -3,6 +3,8 @@ package com.johnsonfitness.qq;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import tw.myid.broker.ExternalTokenExchangeCapable;
+
 import org.json.JSONObject;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.OAuthErrorException;
@@ -22,8 +24,6 @@ import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
-
-import com.johnsonfitness.broker.ExternalTokenExchangeCapable;
 
 import java.io.IOException;
 import java.net.URLDecoder;
