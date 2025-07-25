@@ -115,8 +115,3 @@ client_secret={keycloak-client-secret}
 - [QQ 互聯開發文檔](https://wiki.connect.qq.com/)
 - [apple-identity-provider-keycloak (github)](https://github.com/klausbetz/apple-identity-provider-keycloak)
 - [OAuth 2.0 Token Exchange RFC8693](https://datatracker.ietf.org/doc/html/rfc8693)
-
----
-
-## 聯絡 & 支援
-本範例由 OpenAI + ChatGPT 生成。如需專業客製或問題解答，請建立 Github Issue 或討論串。

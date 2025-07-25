@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.johnsonfitness</groupId>
     <artifactId>qq-identity-provider</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <packaging>jar</packaging>
     <dependencies>
         <dependency>
@@ -29,6 +29,11 @@
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
             <version>20250517</version>
+        </dependency>
+        <dependency>
+            <groupId>com.johnsonfitness</groupId>
+            <artifactId>external-token-exchange</artifactId>
+            <version>1.0.0</version>
         </dependency>
     </dependencies>
 

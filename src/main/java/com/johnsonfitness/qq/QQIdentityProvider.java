@@ -1,5 +1,6 @@
 package com.johnsonfitness.qq;
 
+import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.json.JSONObject;
@@ -16,10 +17,13 @@ import org.keycloak.events.Errors;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.RealmModel;
 import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
+
+import com.johnsonfitness.broker.ExternalTokenExchangeCapable;
 
 import java.io.IOException;
 import java.net.URLDecoder;
@@ -27,7 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
-public class QQIdentityProvider extends OIDCIdentityProvider implements SocialIdentityProvider<OIDCIdentityProviderConfig> {
+public class QQIdentityProvider extends OIDCIdentityProvider implements SocialIdentityProvider<OIDCIdentityProviderConfig>, ExternalTokenExchangeCapable {
 
     static final String QQ_AUTHZ_CODE = "qq-authz-code";
     static final String ACCESS_TOKEN = "access_token";
@@ -177,5 +181,18 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
     @Override
     public QQIdentityProviderConfig getConfig() {
         return (QQIdentityProviderConfig) super.getConfig();
+    }
+
+    @Override
+    public BrokeredIdentityContext exchangeExternalToken(KeycloakSession session, RealmModel realm, String externalToken)
+        throws Exception {
+      EventBuilder event = new EventBuilder(realm, session, session.getContext().getConnection());
+
+      MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+      params.add(OAuth2Constants.SUBJECT_TOKEN, externalToken);
+      params.add(OAuth2Constants.GRANT_TYPE, OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE);
+      params.add(OAuth2Constants.SUBJECT_TOKEN_TYPE, QQ_AUTHZ_CODE);
+
+      return exchangeExternalTokenV1Impl(event, params);
     }
 }
