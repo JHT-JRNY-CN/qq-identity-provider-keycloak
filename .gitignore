@@ -1,0 +1,37 @@
+# Maven target output
+/target/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+*.env
+
+# Java class files
+*.class
+
+# Local JARs
+*.jar
+!src/**/*.jar   # allow versioned jars in src if needed
+
+# Package manager caches
+.mvn/
