@@ -3,7 +3,6 @@ package com.johnsonfitness.qq;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-import tw.myid.broker.ExternalTokenExchangeCapable;
 
 import org.json.JSONObject;
 import org.keycloak.OAuth2Constants;
@@ -24,6 +23,9 @@ import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
+
+import com.johnsonfitness.keycloak.common.interfaces.ExternalTokenExchangeCapable;
+import com.johnsonfitness.keycloak.common.util.RandomUtils;
 
 import java.io.IOException;
 import java.net.URLDecoder;
@@ -133,7 +135,7 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             context.setEmail(openid + "@qq.jrny.cn");
             context.setIdp(this);
 
-            context.setUserAttribute("nickname", userInfo.optString("nickname"));
+            context.setUserAttribute("nickname", userInfo.optString("nickname", RandomUtils.getRandomNickname()));
             context.setUserAttribute("figureurl_qq_1", userInfo.optString("figureurl_qq_1"));
             context.setUserAttribute("gender", userInfo.optString("gender"));
             context.setUserAttribute("qq_openid", openid);
