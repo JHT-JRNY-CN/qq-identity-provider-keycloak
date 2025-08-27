@@ -137,7 +137,6 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
             context.setUserAttribute("nickname", userInfo.optString("nickname", RandomUtils.getRandomNickname()));
             context.setUserAttribute("figureurl_qq_1", userInfo.optString("figureurl_qq_1"));
-            context.setUserAttribute("gender", userInfo.optString("gender"));
             context.setUserAttribute("qq_openid", openid);
 
             return context;
