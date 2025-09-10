@@ -1,16 +1,20 @@
 package com.johnsonfitness.qq;
 
+import com.johnsonfitness.keycloak.common.constants.CommonErrorCode;
+import com.johnsonfitness.keycloak.common.exception.BaseKeycloakException;
+import com.johnsonfitness.keycloak.common.exception.ValidationException;
+import com.johnsonfitness.keycloak.common.interfaces.ExternalTokenExchangeCapable;
+import com.johnsonfitness.keycloak.common.rest.ErrorResponseBuilder;
+import com.johnsonfitness.keycloak.common.util.RandomUtils;
+import com.johnsonfitness.qq.exception.QQException;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-
 import org.json.JSONObject;
 import org.keycloak.OAuth2Constants;
-import org.keycloak.OAuthErrorException;
 import org.keycloak.broker.oidc.OIDCIdentityProvider;
 import org.keycloak.broker.oidc.OIDCIdentityProviderConfig;
 import org.keycloak.broker.provider.BrokeredIdentityContext;
-import org.keycloak.broker.provider.IdentityBrokerException;
 import org.keycloak.broker.provider.util.SimpleHttp;
 import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.events.Details;
@@ -23,10 +27,6 @@ import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
-
-import com.johnsonfitness.keycloak.common.interfaces.ExternalTokenExchangeCapable;
-import com.johnsonfitness.keycloak.common.util.RandomUtils;
-
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -62,39 +62,48 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
     @Override
     protected BrokeredIdentityContext exchangeExternalTokenV1Impl(EventBuilder event, MultivaluedMap<String, String> params) {
-        TokenExchangeParams exchangeParams = new TokenExchangeParams(params);
-        if (exchangeParams.getSubjectToken() == null) {
-            event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN + " param unset");
-            event.error(Errors.INVALID_TOKEN);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_TOKEN, "token not set", Response.Status.BAD_REQUEST);
-        }
+        try {
+            TokenExchangeParams exchangeParams = new TokenExchangeParams(params);
+            if (exchangeParams.getSubjectToken() == null) {
+                event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN + " param unset");
+                event.error(Errors.INVALID_TOKEN);
+                throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Subject token param unset");
+            }
 
-        if (QQ_AUTHZ_CODE.equals(exchangeParams.getSubjectTokenType())) {
-            return exchangeAuthorizationCode(exchangeParams.getSubjectToken());
-        } else {
-            event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN_TYPE + " invalid");
-            event.error(Errors.INVALID_TOKEN_TYPE);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_TOKEN, "invalid token type", Response.Status.BAD_REQUEST);
+            if (QQ_AUTHZ_CODE.equals(exchangeParams.getSubjectTokenType())) {
+                return exchangeAuthorizationCode(exchangeParams.getSubjectToken());
+            } else {
+                event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN_TYPE + " invalid");
+                event.error(Errors.INVALID_TOKEN_TYPE);
+                throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Invalid token type");
+            }
+
+        } catch (BaseKeycloakException e) {
+            throw new ErrorResponseException(
+                ErrorResponseBuilder.buildErrorResponse(e)
+            );
+        } catch (Exception e) {
+            throw new ErrorResponseException(
+                ErrorResponseBuilder.buildErrorResponse(
+                    new QQException(
+                        CommonErrorCode.INTERNAL_SERVER_ERROR,
+                        Response.Status.INTERNAL_SERVER_ERROR,
+                        e
+                    )
+                )
+            );
         }
     }
-    
-    private BrokeredIdentityContext exchangeAuthorizationCode(String authorizationCode) {
+
+    private BrokeredIdentityContext exchangeAuthorizationCode(String authorizationCode) throws IOException {
         String clientId = getConfig().getClientId();
-        try {
-            return sendTokenRequest(authorizationCode, clientId, null);
-        } catch (IOException e) {
-            logger.warn("Error exchanging QQ authorization_code. clientId=" + clientId, e);
-            return null;
-        }
+        return sendTokenRequest(authorizationCode, clientId, null);
     }
 
     public BrokeredIdentityContext sendTokenRequest(String authorizationCode, String clientId, AuthenticationSessionModel authSession) throws IOException {
         SimpleHttp.Response response = generateTokenRequest(authorizationCode, clientId).asResponse();
 
-        if (response.getStatus() > 299) {
-            logger.warn("Error response from QQ: status=" + response.getStatus() + ", body=" + response.asString());
-            return null;
-        }
+        checkQQResponseStatus(response);
 
         String accessToken = extractAccessToken(response.asString());
         BrokeredIdentityContext federatedIdentity = doGetFederatedIdentity(accessToken);
@@ -107,26 +116,31 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
         KeycloakContext context = session.getContext();
         VaultStringSecret clientSecret = session.vault().getStringSecret(getConfig().getClientSecret());
         return SimpleHttp.doPost(getTokenUrl(), session)
-                         .param(OAUTH2_PARAMETER_CODE, authorizationCode)
-                         .param(OAUTH2_PARAMETER_REDIRECT_URI, Urls.identityProviderAuthnResponse(context.getUri().getBaseUri(), getConfig().getAlias(), context.getRealm().getName()).toString())
-                         .param(OAUTH2_PARAMETER_GRANT_TYPE, OAUTH2_GRANT_TYPE_AUTHORIZATION_CODE)
-                         .param(OAUTH2_PARAMETER_CLIENT_ID, clientId)
-                         .param(OAUTH2_PARAMETER_CLIENT_SECRET, clientSecret.get().orElse(getConfig().getClientSecret()));
+            .param(OAUTH2_PARAMETER_CODE, authorizationCode)
+            .param(OAUTH2_PARAMETER_REDIRECT_URI, Urls.identityProviderAuthnResponse(context.getUri().getBaseUri(), getConfig().getAlias(), context.getRealm().getName()).toString())
+            .param(OAUTH2_PARAMETER_GRANT_TYPE, OAUTH2_GRANT_TYPE_AUTHORIZATION_CODE)
+            .param(OAUTH2_PARAMETER_CLIENT_ID, clientId)
+            .param(OAUTH2_PARAMETER_CLIENT_SECRET, clientSecret.get().orElse(getConfig().getClientSecret()));
+    }
+
+    public String getOpenId(String accessToken) throws IOException {
+        SimpleHttp openidRequest = SimpleHttp.doGet("https://graph.qq.com/oauth2.0/me", session)
+            .param("access_token", accessToken);
+
+        SimpleHttp.Response openidResponse = openidRequest.asResponse();
+        checkQQResponseStatus(openidResponse);
+
+        return extractOpenId(openidResponse.asString());
     }
 
     @Override
     protected BrokeredIdentityContext doGetFederatedIdentity(String accessToken) {
         try {
-            SimpleHttp openidRequest = SimpleHttp.doGet("https://graph.qq.com/oauth2.0/me", session)
-                    .param("access_token", accessToken);
-
-            String openidResponse = openidRequest.asString();
-            String openid = extractOpenId(openidResponse);
-
+            String openid = getOpenId(accessToken);
             SimpleHttp userInfoRequest = SimpleHttp.doGet(getUserInfoUrl(), session)
-                    .param("access_token", accessToken)
-                    .param("oauth_consumer_key", getConfig().getClientId())
-                    .param("openid", openid);
+                .param("access_token", accessToken)
+                .param("oauth_consumer_key", getConfig().getClientId())
+                .param("openid", openid);
 
             JSONObject userInfo = new JSONObject(userInfoRequest.asString());
 
@@ -142,42 +156,62 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
             return context;
         } catch (Exception e) {
-            throw new IdentityBrokerException("Could not obtain user profile from QQ.", e);
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                e
+            );
         }
     }
 
     private String extractOpenId(String response) {
         int start = response.indexOf("{");
         int end = response.lastIndexOf("}");
-        try {
-            if (start >= 0 && end >= 0) {
-                String json = response.substring(start, end + 1);
-                JSONObject obj = new JSONObject(json);
-                return obj.getString("openid");
-            }
-        } catch (Exception e) {
-            logger.error("extractOpenId parse error:" + response, e);
+        if (start >= 0 && end >= 0) {
+            String json = response.substring(start, end + 1);
+            JSONObject obj = new JSONObject(json);
+            return obj.getString("openid");
+        } else {
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                "Invalid openId response format"
+            );
         }
-        throw new IdentityBrokerException("Cannot extract openid from QQ response: " + response);
     }
 
     private String extractAccessToken(String response) {
         Map<String, String> tokenMap = new HashMap<>();
-        try {
-            for (String pair: response.split("&")) {
-                String[] parts = pair.split("=", 2);
-                if (parts.length == 2) {
-                    String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-                    String value = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
-                    tokenMap.put(key, value);
-                }
+        for (String pair : response.split("&")) {
+            String[] parts = pair.split("=", 2);
+            if (parts.length == 2) {
+                String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+                String value = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+                tokenMap.put(key, value);
             }
-        } catch (Exception e) {
-            logger.error("extractAccessToken parse error: " + response, e);
-            throw new IdentityBrokerException("Cannot extract access token from QQ response: " + response);
         }
 
-        return tokenMap.get(ACCESS_TOKEN);
+        String accessToken = tokenMap.get(ACCESS_TOKEN);
+        if (accessToken == null) {
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                "QQ access token is null"
+            );
+        }
+
+        return accessToken;
+    }
+
+    private void checkQQResponseStatus(SimpleHttp.Response response) throws IOException {
+        if (response.getStatus() > 299) {
+            String details = "Unexpected response status from QQ, status= " + response.getStatus() + ", body= " + response.asString();
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                details
+            );
+        }
     }
 
     @Override
@@ -186,15 +220,14 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
     }
 
     @Override
-    public BrokeredIdentityContext exchangeExternalToken(KeycloakSession session, RealmModel realm, String externalToken)
-        throws Exception {
-      EventBuilder event = new EventBuilder(realm, session, session.getContext().getConnection());
+    public BrokeredIdentityContext exchangeExternalToken(KeycloakSession session, RealmModel realm, String externalToken) {
+        EventBuilder event = new EventBuilder(realm, session, session.getContext().getConnection());
 
-      MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
-      params.add(OAuth2Constants.SUBJECT_TOKEN, externalToken);
-      params.add(OAuth2Constants.GRANT_TYPE, OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE);
-      params.add(OAuth2Constants.SUBJECT_TOKEN_TYPE, QQ_AUTHZ_CODE);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add(OAuth2Constants.SUBJECT_TOKEN, externalToken);
+        params.add(OAuth2Constants.GRANT_TYPE, OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE);
+        params.add(OAuth2Constants.SUBJECT_TOKEN_TYPE, QQ_AUTHZ_CODE);
 
-      return exchangeExternalTokenV1Impl(event, params);
+        return exchangeExternalTokenV1Impl(event, params);
     }
 }
