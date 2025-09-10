@@ -3,7 +3,7 @@ package com.johnsonfitness.qq.constants;
 import com.johnsonfitness.keycloak.common.interfaces.ErrorCode;
 
 public enum QQErrorCode implements ErrorCode {
-    JSON_PARSE_ERROR("QQ_1000", "Parse json error");
+    ;
 
     private final String code;
     private final String message;
