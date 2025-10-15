@@ -4,7 +4,6 @@ import com.johnsonfitness.keycloak.common.constants.CommonErrorCode;
 import com.johnsonfitness.keycloak.common.exception.BaseKeycloakException;
 import com.johnsonfitness.keycloak.common.exception.ValidationException;
 import com.johnsonfitness.keycloak.common.interfaces.ExternalTokenExchangeCapable;
-import com.johnsonfitness.keycloak.common.rest.ErrorResponseBuilder;
 import com.johnsonfitness.keycloak.common.util.RandomUtils;
 import com.johnsonfitness.qq.exception.QQException;
 import jakarta.ws.rs.core.MultivaluedHashMap;
@@ -23,7 +22,6 @@ import org.keycloak.events.EventBuilder;
 import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
-import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.vault.VaultStringSecret;
@@ -51,8 +49,12 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
         return "https://graph.qq.com/oauth2.0/authorize";
     }
 
-    protected String getTokenUrl() {
+    private String getTokenUrl() {
         return "https://graph.qq.com/oauth2.0/token";
+    }
+
+    private String getOpenidUrl() {
+        return "https://graph.qq.com/oauth2.0/me";
     }
 
     @Override
@@ -62,54 +64,46 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
 
     @Override
     protected BrokeredIdentityContext exchangeExternalTokenV1Impl(EventBuilder event, MultivaluedMap<String, String> params) {
+        TokenExchangeParams exchangeParams = new TokenExchangeParams(params);
+        if (exchangeParams.getSubjectToken() == null) {
+            event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN + " param unset");
+            event.error(Errors.INVALID_TOKEN);
+            throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Subject token param unset");
+        }
+
+        if (QQ_AUTHZ_CODE.equals(exchangeParams.getSubjectTokenType())) {
+            return exchangeAuthorizationCode(exchangeParams.getSubjectToken());
+        } else {
+            event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN_TYPE + " invalid");
+            event.error(Errors.INVALID_TOKEN_TYPE);
+            throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Invalid token type");
+        }
+    }
+
+    private BrokeredIdentityContext exchangeAuthorizationCode(String authorizationCode) {
+        String clientId = getConfig().getClientId();
         try {
-            TokenExchangeParams exchangeParams = new TokenExchangeParams(params);
-            if (exchangeParams.getSubjectToken() == null) {
-                event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN + " param unset");
-                event.error(Errors.INVALID_TOKEN);
-                throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Subject token param unset");
-            }
-
-            if (QQ_AUTHZ_CODE.equals(exchangeParams.getSubjectTokenType())) {
-                return exchangeAuthorizationCode(exchangeParams.getSubjectToken());
-            } else {
-                event.detail(Details.REASON, OAuth2Constants.SUBJECT_TOKEN_TYPE + " invalid");
-                event.error(Errors.INVALID_TOKEN_TYPE);
-                throw new ValidationException(CommonErrorCode.VALIDATION_ERROR, "Invalid token type");
-            }
-
-        } catch (BaseKeycloakException e) {
-            throw new ErrorResponseException(
-                ErrorResponseBuilder.buildErrorResponse(e)
-            );
-        } catch (Exception e) {
-            throw new ErrorResponseException(
-                ErrorResponseBuilder.buildErrorResponse(
-                    new QQException(
-                        CommonErrorCode.INTERNAL_SERVER_ERROR,
-                        Response.Status.INTERNAL_SERVER_ERROR,
-                        e
-                    )
-                )
+            return sendTokenRequest(authorizationCode, clientId, null);
+        } catch (IOException e) {
+            throw new BaseKeycloakException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                e
             );
         }
     }
 
-    private BrokeredIdentityContext exchangeAuthorizationCode(String authorizationCode) throws IOException {
-        String clientId = getConfig().getClientId();
-        return sendTokenRequest(authorizationCode, clientId, null);
-    }
-
     public BrokeredIdentityContext sendTokenRequest(String authorizationCode, String clientId, AuthenticationSessionModel authSession) throws IOException {
-        SimpleHttp.Response response = generateTokenRequest(authorizationCode, clientId).asResponse();
-
-        checkQQResponseStatus(response);
-
-        String accessToken = extractAccessToken(response.asString());
+        String accessToken = getAccessToken(authorizationCode, clientId);
         BrokeredIdentityContext federatedIdentity = doGetFederatedIdentity(accessToken);
         federatedIdentity.setIdp(QQIdentityProvider.this);
         federatedIdentity.setAuthenticationSession(authSession);
         return federatedIdentity;
+    }
+
+    public String getAccessToken(String authorizationCode, String clientId) throws IOException {
+        String response = generateTokenRequest(authorizationCode, clientId).asString();
+        return extractAccessToken(response);
     }
 
     public SimpleHttp generateTokenRequest(String authorizationCode, String clientId) {
@@ -121,63 +115,6 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             .param(OAUTH2_PARAMETER_GRANT_TYPE, OAUTH2_GRANT_TYPE_AUTHORIZATION_CODE)
             .param(OAUTH2_PARAMETER_CLIENT_ID, clientId)
             .param(OAUTH2_PARAMETER_CLIENT_SECRET, clientSecret.get().orElse(getConfig().getClientSecret()));
-    }
-
-    public String getOpenId(String accessToken) throws IOException {
-        SimpleHttp openidRequest = SimpleHttp.doGet("https://graph.qq.com/oauth2.0/me", session)
-            .param("access_token", accessToken);
-
-        SimpleHttp.Response openidResponse = openidRequest.asResponse();
-        checkQQResponseStatus(openidResponse);
-
-        return extractOpenId(openidResponse.asString());
-    }
-
-    @Override
-    protected BrokeredIdentityContext doGetFederatedIdentity(String accessToken) {
-        try {
-            String openid = getOpenId(accessToken);
-            SimpleHttp userInfoRequest = SimpleHttp.doGet(getUserInfoUrl(), session)
-                .param("access_token", accessToken)
-                .param("oauth_consumer_key", getConfig().getClientId())
-                .param("openid", openid);
-
-            JSONObject userInfo = new JSONObject(userInfoRequest.asString());
-
-            BrokeredIdentityContext context = new BrokeredIdentityContext(openid, getConfig());
-            context.setUsername("QQ-" + openid);
-            context.setEmail(openid + "@qq.jrny.cn");
-            context.setIdp(this);
-
-            context.setUserAttribute("nickname", userInfo.optString("nickname", RandomUtils.getRandomNickname()));
-            context.setUserAttribute("figureurl_qq_1", userInfo.optString("figureurl_qq_1"));
-            context.setUserAttribute("gender", userInfo.optString("gender"));
-            context.setUserAttribute("qq_openid", openid);
-
-            return context;
-        } catch (Exception e) {
-            throw new QQException(
-                CommonErrorCode.INTERNAL_SERVER_ERROR,
-                Response.Status.INTERNAL_SERVER_ERROR,
-                e
-            );
-        }
-    }
-
-    private String extractOpenId(String response) {
-        int start = response.indexOf("{");
-        int end = response.lastIndexOf("}");
-        if (start >= 0 && end >= 0) {
-            String json = response.substring(start, end + 1);
-            JSONObject obj = new JSONObject(json);
-            return obj.getString("openid");
-        } else {
-            throw new QQException(
-                CommonErrorCode.INTERNAL_SERVER_ERROR,
-                Response.Status.INTERNAL_SERVER_ERROR,
-                "Invalid openId response format"
-            );
-        }
     }
 
     private String extractAccessToken(String response) {
@@ -196,20 +133,82 @@ public class QQIdentityProvider extends OIDCIdentityProvider implements SocialId
             throw new QQException(
                 CommonErrorCode.INTERNAL_SERVER_ERROR,
                 Response.Status.INTERNAL_SERVER_ERROR,
-                "QQ access token is null"
+                String.format("Fail to get access token, response: %s", response)
             );
         }
 
         return accessToken;
     }
 
-    private void checkQQResponseStatus(SimpleHttp.Response response) throws IOException {
-        if (response.getStatus() > 299) {
-            String details = "Unexpected response status from QQ, status= " + response.getStatus() + ", body= " + response.asString();
+    public String getOpenid(String accessToken) throws IOException {
+        String openidResponse = generateOpenidRequest(accessToken).asString();
+        return extractOpenid(openidResponse);
+    }
+
+    public SimpleHttp generateOpenidRequest(String accessToken) {
+        return SimpleHttp.doGet(getOpenidUrl(), session)
+            .param("access_token", accessToken);
+    }
+
+    private String extractOpenid(String response) {
+        int start = response.indexOf("{");
+        int end = response.lastIndexOf("}");
+        try {
+            String json = response.substring(start, end + 1);
+            JSONObject obj = new JSONObject(json);
+            return obj.getString("openid");
+        } catch (Exception e) {
             throw new QQException(
                 CommonErrorCode.INTERNAL_SERVER_ERROR,
                 Response.Status.INTERNAL_SERVER_ERROR,
-                details
+                String.format("Fail to get openid, response: %s", response)
+            );
+        }
+    }
+
+    public JSONObject getUserInfo(String accessToken, String openid) throws IOException {
+        String userInfoString = generateUserInfoRequest(accessToken, openid).asString();
+        JSONObject userInfo = new JSONObject(userInfoString);
+        if (userInfo.getLong("ret") != 0) {
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                String.format("Fail to get user info, response: %s", userInfoString)
+            );
+        }
+
+        return userInfo;
+    }
+
+    public SimpleHttp generateUserInfoRequest(String accessToken, String openid) {
+        return SimpleHttp.doGet(getUserInfoUrl(), session)
+            .param("access_token", accessToken)
+            .param("oauth_consumer_key", getConfig().getClientId())
+            .param("openid", openid);
+    }
+
+    @Override
+    protected BrokeredIdentityContext doGetFederatedIdentity(String accessToken) {
+        try {
+            String openid = getOpenid(accessToken);
+            JSONObject userInfo = getUserInfo(accessToken, openid);
+
+            BrokeredIdentityContext context = new BrokeredIdentityContext(openid, getConfig());
+            context.setUsername("QQ-" + openid);
+            context.setEmail(openid + "@qq.jrny.cn");
+            context.setIdp(this);
+
+            context.setUserAttribute("nickname", userInfo.optString("nickname", RandomUtils.getRandomNickname()));
+            context.setUserAttribute("figureurl_qq_1", userInfo.optString("figureurl_qq_1"));
+            context.setUserAttribute("gender", userInfo.optString("gender"));
+            context.setUserAttribute("qq_openid", openid);
+
+            return context;
+        } catch (IOException e) {
+            throw new QQException(
+                CommonErrorCode.INTERNAL_SERVER_ERROR,
+                Response.Status.INTERNAL_SERVER_ERROR,
+                e
             );
         }
     }
