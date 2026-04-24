@@ -23,7 +23,7 @@
         <version.junit.bom>5.13.4</version.junit.bom>
         <version.mockito.bom>5.19.0</version.mockito.bom>
         <version.keycloak>26.3.1</version.keycloak>
-        <version.keycloak.common>1.0.4</version.keycloak.common>
+        <version.keycloak.common>1.0.5</version.keycloak.common>
         <version.json>20250517</version.json>
     </properties>
 
